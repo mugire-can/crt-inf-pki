@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import shutil
+import argparse
 
 def get_openssl_path():
     p = shutil.which('openssl')
@@ -30,10 +31,31 @@ def run_cmd(cmd):
         print(f"[ERROR] Command failed with exit code {res.returncode}")
         sys.exit(res.returncode)
 
+def required_secret(name):
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
 def main():
+    parser = argparse.ArgumentParser(description="Generate a disposable two-tier PKI.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete existing generated PKI directories before creating new material.",
+    )
+    args = parser.parse_args()
+    required_secret("ROOT_CA_PASSWORD")
+    required_secret("INTERMEDIATE_CA_PASSWORD")
+    required_secret("CLIENT_BUNDLE_PASSWORD")
+
     # Clean previous generated runtime artifacts inside root-ca, inter-ca, server, client
     for d in ["root-ca", "inter-ca", "server", "client"]:
         if os.path.exists(d):
+            if not args.force:
+                raise RuntimeError(
+                    f"{d} already exists; use --force only for disposable test material"
+                )
             shutil.rmtree(d)
 
     # 1. Create directory structure
@@ -194,15 +216,15 @@ authorityKeyIdentifier=keyid:always
             f.write("1000\n")
 
     # 4. Generate Root CA Private Key and Certificate
-    run_cmd("openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 -aes-256-cbc -pass pass:rootsecret -out root-ca/private/root.key")
-    run_cmd('openssl req -new -x509 -sha384 -days 7300 -config root-ca/root.cnf -extensions v3_ca -key root-ca/private/root.key -passin pass:rootsecret -out root-ca/certs/root.crt -subj "/O=Demo PKI/CN=Demo Root CA"')
+    run_cmd("openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 -aes-256-cbc -pass env:ROOT_CA_PASSWORD -out root-ca/private/root.key")
+    run_cmd('openssl req -new -x509 -sha384 -days 7300 -config root-ca/root.cnf -extensions v3_ca -key root-ca/private/root.key -passin env:ROOT_CA_PASSWORD -out root-ca/certs/root.crt -subj "/O=Demo PKI/CN=Demo Root CA"')
 
     # 5. Generate Intermediate CA Private Key and CSR
-    run_cmd("openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 -aes-256-cbc -pass pass:intersecret -out inter-ca/private/inter.key")
-    run_cmd('openssl req -new -sha384 -key inter-ca/private/inter.key -passin pass:intersecret -out inter-ca/csr/inter.csr -subj "/O=Demo PKI/CN=Demo Intermediate CA"')
+    run_cmd("openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-384 -aes-256-cbc -pass env:INTERMEDIATE_CA_PASSWORD -out inter-ca/private/inter.key")
+    run_cmd('openssl req -new -sha384 -key inter-ca/private/inter.key -passin env:INTERMEDIATE_CA_PASSWORD -out inter-ca/csr/inter.csr -subj "/O=Demo PKI/CN=Demo Intermediate CA"')
 
     # 6. Sign Intermediate CA CSR with Root CA
-    run_cmd('openssl ca -batch -config root-ca/root.cnf -extensions v3_intermediate_ca -days 1825 -notext -in inter-ca/csr/inter.csr -out inter-ca/certs/inter.crt -passin pass:rootsecret')
+    run_cmd('openssl ca -batch -config root-ca/root.cnf -extensions v3_intermediate_ca -days 1825 -notext -in inter-ca/csr/inter.csr -out inter-ca/certs/inter.crt -passin env:ROOT_CA_PASSWORD')
 
     # 7. Create CA Chain (inter.crt + root.crt)
     with open("inter-ca/certs/ca-chain.pem", "wb") as outfile:
@@ -215,7 +237,7 @@ authorityKeyIdentifier=keyid:always
     run_cmd('openssl req -new -key server/private/server.key -out server/certs/server.csr -subj "/O=Demo PKI/CN=app.demo.local"')
 
     # 9. Sign Server Certificate with Intermediate CA
-    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -extensions server_cert -days 180 -notext -in server/certs/server.csr -out server/certs/server.crt -passin pass:intersecret')
+    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -extensions server_cert -days 180 -notext -in server/certs/server.csr -out server/certs/server.crt -passin env:INTERMEDIATE_CA_PASSWORD')
 
     # Create server chain (server.crt + inter.crt)
     with open("server/certs/server-chain.crt", "wb") as outfile:
@@ -228,10 +250,10 @@ authorityKeyIdentifier=keyid:always
     run_cmd('openssl req -new -key client/private/alice.key -out client/certs/alice.csr -subj "/O=Demo PKI/CN=alice"')
 
     # 11. Sign Client Certificate with Intermediate CA
-    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -extensions client_cert -days 180 -notext -in client/certs/alice.csr -out client/certs/alice.crt -passin pass:intersecret')
+    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -extensions client_cert -days 180 -notext -in client/certs/alice.csr -out client/certs/alice.crt -passin env:INTERMEDIATE_CA_PASSWORD')
 
     # Export client PKCS#12 bundle
-    run_cmd('openssl pkcs12 -export -inkey client/private/alice.key -in client/certs/alice.crt -certfile inter-ca/certs/ca-chain.pem -out client/certs/alice.p12 -passout pass:alicepass')
+    run_cmd('openssl pkcs12 -export -inkey client/private/alice.key -in client/certs/alice.crt -certfile inter-ca/certs/ca-chain.pem -out client/certs/alice.p12 -passout env:CLIENT_BUNDLE_PASSWORD')
 
     print("[SUCCESS] PKI setup and certificate issuance completed successfully!")
 

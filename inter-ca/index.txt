@@ -1,2 +1,0 @@
-V	270505104329Z		1000	unknown	/O=Demo PKI/CN=app.demo.local
-R	270505104330Z	261106104345Z,keyCompromise	1001	unknown	/O=Demo PKI/CN=alice

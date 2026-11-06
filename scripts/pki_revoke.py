@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import shutil
+import argparse
 
 def get_openssl_path():
     p = shutil.which('openssl')
@@ -30,23 +31,33 @@ def run_cmd(cmd):
         sys.exit(res.returncode)
 
 def main():
-    print("--- Revoking Alice's Certificate ---")
-    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -revoke client/certs/alice.crt -crl_reason keyCompromise -passin pass:intersecret')
+    parser = argparse.ArgumentParser(description="Revoke a certificate and generate the CRL bundle.")
+    parser.add_argument("--certificate", required=True, help="Certificate path relative to the repository.")
+    parser.add_argument(
+        "--reason",
+        default="unspecified",
+        choices=["unspecified", "keyCompromise", "CACompromise", "affiliationChanged",
+                 "superseded", "cessationOfOperation", "certificateHold"],
+        help="OpenSSL revocation reason.",
+    )
+    args = parser.parse_args()
+    if not os.environ.get("INTERMEDIATE_CA_PASSWORD"):
+        raise RuntimeError("Missing required environment variable: INTERMEDIATE_CA_PASSWORD")
+
+    print(f"--- Revoking {args.certificate} ---")
+    run_cmd(f'openssl ca -batch -config inter-ca/inter.cnf -revoke "{args.certificate}" -crl_reason {args.reason} -passin env:INTERMEDIATE_CA_PASSWORD')
 
     print("--- Generating Intermediate CRL ---")
-    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -gencrl -out inter-ca/crl/inter.crl -passin pass:intersecret')
+    run_cmd('openssl ca -batch -config inter-ca/inter.cnf -gencrl -out inter-ca/crl/inter.crl -passin env:INTERMEDIATE_CA_PASSWORD')
 
     # Create CRL bundle for Nginx
     crl_bundle = "server/certs/crl-bundle.pem"
     os.makedirs("server/certs", exist_ok=True)
-    if os.path.exists("root-ca/crl/root.crl"):
-        with open(crl_bundle, "wb") as outfile:
-            for fname in ["root-ca/crl/root.crl", "inter-ca/crl/inter.crl"]:
-                if os.path.exists(fname):
-                    with open(fname, "rb") as infile:
-                        outfile.write(infile.read())
-    else:
-        shutil.copy("inter-ca/crl/inter.crl", crl_bundle)
+    with open(crl_bundle, "wb") as outfile:
+        for fname in ["root-ca/crl/root.crl", "inter-ca/crl/inter.crl"]:
+            if os.path.exists(fname):
+                with open(fname, "rb") as infile:
+                    outfile.write(infile.read())
 
     print("--- Verifying CRL ---")
     run_cmd(f'"{OPENSSL}" crl -in inter-ca/crl/inter.crl -noout -text')
