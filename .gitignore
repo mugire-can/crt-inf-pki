@@ -1,0 +1,48 @@
+# --- Sensitive / raw deliverable files ---
+# Never commit raw course materials, scan exports, or anything with real host/credential data
+*.pdf
+*.pptx
+*.docx
+*.xml
+!docs/**/*.xml
+
+# Credentials / secrets / environment files
+*.env
+.env.*
+*credentials*
+*secrets*
+*.key
+*.pem
+*.pfx
+*.p12
+*token*
+
+# Database dumps / exports
+*.bak
+*.sql.gz
+*.csv
+!reports/**/*.csv.sample
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Logs / temp ---
+*.log
+*.tmp
+temp/
+tmp/
+
+# --- Virtual machine artifacts ---
+*.ova
+*.ovf
+*.vmdk
+*.vdi
+*.vbox

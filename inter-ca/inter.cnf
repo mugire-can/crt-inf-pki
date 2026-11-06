@@ -1,0 +1,67 @@
+[ ca ]
+default_ca = CA_default
+
+[ CA_default ]
+dir               = inter-ca
+certs             = $dir/certs
+crl_dir           = $dir/crl
+new_certs_dir     = $dir/newcerts
+database          = $dir/index.txt
+serial            = $dir/serial
+RANDFILE          = $dir/private/.rand
+
+private_key       = $dir/private/inter.key
+certificate       = $dir/certs/inter.crt
+
+crl               = $dir/crl/inter.crl
+crlnumber         = $dir/crlnumber
+crl_extensions    = crl_ext
+default_crl_days  = 7
+default_days      = 1825
+default_md        = sha384
+preserve          = no
+policy            = policy_loose
+
+[ policy_loose ]
+countryName             = optional
+stateOrProvinceName     = optional
+organizationName        = optional
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+
+[ req ]
+default_bits        = 3072
+distinguished_name  = req_distinguished_name
+string_mask         = utf8only
+default_md          = sha384
+
+[ req_distinguished_name ]
+countryName             = Country Name (2 letter code)
+organizationName        = Organization Name
+commonName              = Common Name
+
+[ server_cert ]
+basicConstraints = CA:FALSE
+nsCertType = server
+nsComment = "OpenSSL Generated Server Certificate"
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer:always
+keyUsage = critical, digitalSignature
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[ client_cert ]
+basicConstraints = CA:FALSE
+nsCertType = client, email
+nsComment = "OpenSSL Generated Client Certificate"
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer:always
+keyUsage = critical, digitalSignature
+extendedKeyUsage = clientAuth
+
+[ alt_names ]
+DNS.1 = app.demo.local
+
+[ crl_ext ]
+authorityKeyIdentifier=keyid:always
