@@ -1,5 +1,5 @@
 # --- Sensitive / raw deliverable files ---
-# Never commit raw course materials, scan exports, or anything with real host/credential data
+# Course material and generated PKI material stay local.
 *.pdf
 *.pptx
 *.docx
@@ -15,7 +15,17 @@
 *.pem
 *.pfx
 *.p12
+*.csr
 *token*
+
+# OpenSSL CA state and issued certificate databases
+**/index.txt*
+**/serial*
+**/crlnumber*
+**/newcerts/
+**/private/
+**/certs/*.crt
+**/crl/
 
 # Database dumps / exports
 *.bak

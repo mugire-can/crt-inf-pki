@@ -1,12 +1,12 @@
-# Enterprise PKI & mTLS Infrastructure (Option A)
+# Enterprise PKI & mTLS Infrastructure
 
-![Status](https://img.shields.io/badge/status-complete-success)
+![Status](https://img.shields.io/badge/status-academic--reference-informational)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![OpenSSL](https://img.shields.io/badge/OpenSSL-3.x-green)
 ![Python](https://img.shields.io/badge/python-3.8%2B-blue)
 ![Security Standard](https://img.shields.io/badge/NIST-SP%20800--57-informational)
 
-A robust, production-grade Public Key Infrastructure (PKI) implementation and web service hardening project featuring a 3-tier trust hierarchy, automated OpenSSL scripting, mutual TLS (mTLS) authentication, and Certificate Revocation List (CRL) management.
+An academic reference implementation of a two-tier PKI (offline root and online issuing CA) with OpenSSL automation, mutual TLS (mTLS), and certificate revocation. It is not a production CA and must only be used with disposable test data.
 
 ---
 
@@ -18,25 +18,12 @@ A robust, production-grade Public Key Infrastructure (PKI) implementation and we
 │   ├── SECURITY.md
 │   ├── CONTRIBUTING.md
 │   └── ISSUE_TEMPLATE/
-├── root-ca/                  # Offline Root CA (Air-Gapped)
-│   ├── root.cnf              # Root CA OpenSSL configuration
-│   ├── private/root.key      # Root CA private key (ECDSA P-384, AES-256 encrypted)
-│   └── certs/root.crt        # Root CA self-signed certificate
-├── inter-ca/                 # Online Issuing / Intermediate CA
-│   ├── inter.cnf             # Intermediate CA OpenSSL configuration
-│   ├── private/inter.key     # Intermediate CA private key
-│   ├── certs/inter.crt       # Intermediate CA certificate signed by Root
-│   ├── certs/ca-chain.pem    # Full trust chain (Intermediate + Root)
-│   └── crl/inter.crl         # Certificate Revocation List (CRL)
-├── server/                   # Server Entity (app.demo.local)
-│   ├── private/server.key     # Server private key (ECDSA P-256)
-│   ├── certs/server.crt      # Server certificate with SAN
-│   ├── certs/server-chain.crt# Server chain (Server + Intermediate)
-│   └── certs/crl-bundle.pem  # Combined CRL bundle for Nginx
-├── client/                   # End-User Entity (Alice)
-│   ├── private/alice.key     # Client private key
-│   ├── certs/alice.crt       # Client certificate (clientAuth)
-│   └── certs/alice.p12       # PKCS#12 bundle for browser import
+├── root-ca/                  # Configuration plus generated offline CA (generated files ignored)
+│   └── root.cnf              # Root CA OpenSSL profile
+├── inter-ca/                 # Configuration plus generated issuing CA (generated files ignored)
+│   └── inter.cnf             # Issuing CA OpenSSL profile
+├── server/                   # Generated server certificate and key (ignored)
+├── client/                   # Generated client certificate and key (ignored)
 ├── scripts/                  # Python Automation Scripts
 │   ├── pki_setup.py          # PKI initialization & certificate issuance script
 │   └── pki_revoke.py         # Certificate revocation & CRL generation script
@@ -51,42 +38,63 @@ A robust, production-grade Public Key Infrastructure (PKI) implementation and we
 
 ## 🚀 Quick Start Guide
 
-### 1. Generate the PKI Hierarchy & Certificates
-Run the automation script to initialize directories, generate private keys, create CSRs, and issue certificates for the Root CA, Intermediate CA, Server, and Client:
+### 1. Generate the PKI hierarchy and certificates
+The script requires explicit passphrases and refuses to overwrite an existing PKI unless `--force` is supplied. Use a disposable directory or backup before regenerating:
 ```bash
-python scripts/pki_setup.py
+set ROOT_CA_PASSWORD=change-me
+set INTERMEDIATE_CA_PASSWORD=change-me
+set CLIENT_BUNDLE_PASSWORD=change-me
+python scripts/pki_setup.py --force
 ```
 
-### 2. Test Certificate Revocation (CRL)
-To revoke a certificate (e.g., client `alice` for `keyCompromise`), generate the updated CRL bundle, and enforce revocation:
+On PowerShell, replace `set` with `$env:ROOT_CA_PASSWORD = "change-me"` (and the other two variables). Never use these values outside a disposable lab.
+
+### 2. Revoke a certificate and regenerate the CRL
 ```bash
-python scripts/pki_revoke.py
+set INTERMEDIATE_CA_PASSWORD=change-me
+python scripts/pki_revoke.py --certificate client/certs/alice.crt --reason keyCompromise
 ```
 
-### 3. Nginx mTLS Configuration
+### 3. Nginx mTLS configuration
 Configure Nginx (`app.demo.local`) to enforce mutual TLS and strict CRL verification:
 ```nginx
 server {
     listen 443 ssl;
     server_name app.demo.local;
 
-    ssl_certificate     server/certs/server-chain.crt;
-    ssl_certificate_key server/private/server.key;
+    ssl_certificate     /path/to/generated/server/certs/server-chain.crt;
+    ssl_certificate_key /path/to/generated/server/private/server.key;
 
-    ssl_client_certificate inter-ca/certs/ca-chain.pem;
+    ssl_client_certificate /path/to/generated/inter-ca/certs/ca-chain.pem;
     ssl_verify_client      on;
     ssl_verify_depth       2;
-    ssl_crl                server/certs/crl-bundle.pem;
+    ssl_crl                /path/to/generated/server/certs/crl-bundle.pem;
 }
 ```
 
 ---
 
-## 🛡️ Key Features & Cryptographic Compliance
-- **NIST SP 800-57 Compliant**: ECDSA P-384 for CAs, P-256 for end-entities.
+## Key features and limitations
+- **NIST SP 800-57 aligned**: ECDSA P-384 for CAs, P-256 for end entities.
 - **SHA-384 Hashing**: Eliminates collision risks associated with legacy hash functions.
 - **Strict X.509 Constraints**: `pathlen:0` on intermediate CA, mandatory `SAN` for servers (`DNS:app.demo.local`).
-- **Incident Resiliency**: Designed with learnings from recent CA compromises (e.g., entropy verification and rapid revocation workflows).
+- **Revocation workflow**: Generates an intermediate CRL and an Nginx CRL bundle.
+
+The project intentionally does not commit private keys, PKCS#12 bundles, CSRs, issued certificates, or OpenSSL state files. The generated files are local lab artifacts and are excluded by `.gitignore`.
+
+## Validation
+
+After generation, inspect the chain and certificate purposes:
+
+```bash
+openssl verify -CAfile root-ca/certs/root.crt -untrusted inter-ca/certs/inter.crt server/certs/server.crt
+openssl x509 -in server/certs/server.crt -noout -subject -issuer -ext subjectAltName -ext extendedKeyUsage
+openssl x509 -in client/certs/alice.crt -noout -subject -issuer -ext extendedKeyUsage
+```
+
+## Project status
+
+This repository is an academic demonstration, not a general-purpose CA. It does not provide OCSP despite the historical report mentioning it; the current implementation covers CRL-based revocation only.
 
 ## 📄 License
 This project is licensed under the [MIT License](LICENSE).
